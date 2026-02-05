@@ -1,5 +1,44 @@
 # Change Log
 
+## Version 1.0.18 - Configuration, PDQ pathing, and installer improvements
+
+### UI/UX
+- Enforced a minimum window size to prevent layout breakage
+- Added a detailed results panel and improved list sorting
+- Enhanced ListView sorting and persisted sort settings
+- Fixed search history menu initialization
+- Added computer shutdown and restart actions to the UI
+- Ensured consistent menu text color across themes
+
+### Settings and Configuration
+- Switched to shared-first settings loading and preserved unknown keys when saving
+- Removed hard-coded AD/PDQ defaults and added a configurable domain controller list
+- Added configurable AD base OUs and support for multiple base OUs per object type
+- Removed legacy settings keys and defaults
+
+### Active Directory and Search
+- Improved AD location matching and filtering logic
+- Enhanced favorites management and advanced search handling
+- Refactored the `ADSearch` module for robustness and added help stubs
+
+### PDQ Integration
+- Standardized PDQ executable path resolution by storing explicit executable paths
+- Added PDQ license check and gracefully stop PDQ apps before operations
+- Iterated on InstallPath approach; finalized on explicit PDQ pathing
+
+### Shared Data and Sync
+- Refactored shared data sync to use the preferred share as the source of truth
+- Refreshed menus automatically after sync when files change
+
+### Install/Uninstall and Packaging
+- Improved `scripts/Install.ps1` to handle `Resolve-Path` arrays and other edge cases
+- Extended uninstall options and refined `scripts/Uninstall.ps1`
+- Added `scripts/Package-Release.ps1` and `QUICKSTART.md`; updated `README.md`
+
+### Repository and Tooling
+- Updated `.gitignore`
+- Temporarily removed GitHub Actions CI workflow
+
 ## Version 1.0.17 - Codebase Cleanup, Security, and Developer Experience
 
 ### Security
