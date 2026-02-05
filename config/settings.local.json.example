@@ -1,0 +1,7 @@
+{
+    "_comment": "Copy this file to %ProgramData%\\ADapp\\config\\settings.local.json and fill in machine-specific secrets.",
+    "_comment2": "%ProgramData%\\ADapp\\config\\settings.local.json is local-only and merges over config/settings.json at runtime.",
+    "Connections": {
+        "VNCPassword": "your-vnc-password-here"
+    }
+}

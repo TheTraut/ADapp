@@ -1,0 +1,138 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/adapp/settings.schema.json",
+  "title": "ADapp Settings",
+  "description": "Configuration schema for ADapp defaults in config/settings.json. User changes are stored in %ProgramData%\\ADapp\\Data\\settings.json or a preferred shared data folder.",
+  "type": "object",
+  "properties": {
+    "Application": {
+      "type": "object",
+      "description": "Application metadata and window settings",
+      "properties": {
+        "Title": { "type": "string", "description": "Window title" },
+        "Version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$", "description": "Application version (X.Y.Z)" },
+        "MainFormSize": {
+          "type": "object",
+          "properties": {
+            "Width": { "type": "integer", "minimum": 400 },
+            "Height": { "type": "integer", "minimum": 300 }
+          }
+        },
+        "MinFormSize": {
+          "type": "object",
+          "properties": {
+            "Width": { "type": "integer", "minimum": 400 },
+            "Height": { "type": "integer", "minimum": 300 }
+          }
+        }
+      },
+      "required": ["Title", "Version"]
+    },
+    "UI": {
+      "type": "object",
+      "description": "User interface theming and appearance",
+      "properties": {
+        "Theme": {
+          "type": "object",
+          "properties": {
+            "Mode": { "type": "string", "enum": ["Light", "Dark", "System"] },
+            "PrimaryColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+            "SecondaryColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+            "BackgroundColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+            "TextColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" }
+          }
+        },
+        "ThemeDark": {
+          "type": "object",
+          "properties": {
+            "PrimaryColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+            "SecondaryColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+            "BackgroundColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" },
+            "TextColor": { "type": "string", "pattern": "^#[0-9A-Fa-f]{6}$" }
+          }
+        }
+      }
+    },
+    "Search": {
+      "type": "object",
+      "description": "Search behavior configuration",
+      "properties": {
+        "MaxSearchHistory": { "type": "integer", "minimum": 5, "maximum": 100 },
+        "ExactMatchDefault": { "type": "boolean" },
+        "IncludeDisabledDefault": { "type": "boolean" },
+        "AdvancedSearchDefault": { "type": "boolean" }
+      }
+    },
+    "AD": {
+      "type": "object",
+      "description": "Active Directory settings. Set org-specific values (domain controllers, OUs, paths) in config or via Settings in the app.",
+      "properties": {
+        "ADSyncDC": { "type": "string", "description": "Domain controller hostname for AD sync operations (configure in Settings)" },
+        "ADSyncScriptPath": { "type": "string", "description": "Path to AD sync script (configure in Settings)" },
+        "PreferredDomainControllers": { "type": "array", "items": { "type": "string" }, "description": "Ordered list of DC FQDNs for AD and DHCP lookups (e.g. [\"dc01.example.com\", \"dc02.example.com\"])" },
+        "UserBaseOU": { "type": "array", "items": { "type": "string" }, "description": "Base OUs for users, canonical or DN (configure in Settings)" },
+        "ComputerBaseOU": { "type": "array", "items": { "type": "string" }, "description": "Base OUs for computers, canonical or DN (configure in Settings)" },
+        "GroupBaseOU": { "type": "array", "items": { "type": "string" }, "description": "Base OUs for groups (canonical name or distinguished name)" },
+        "ServerBaseOU": { "type": "array", "items": { "type": "string" }, "description": "Base OUs for servers (canonical name or distinguished name)" }
+      }
+    },
+    "Connections": {
+      "type": "object",
+      "description": "Remote connection settings",
+      "properties": {
+        "VNCPath": { "type": "string", "description": "Path to VNC viewer executable" },
+        "VNCPassword": { "type": "string", "description": "VNC password (use %ProgramData%\\ADapp\\config\\settings.local.json)" },
+        "VNCViewOnly": { "type": "boolean" },
+        "VNCTimeout": { "type": "integer", "minimum": 5 },
+        "RDPTimeout": { "type": "integer", "minimum": 5 }
+      }
+    },
+    "Logging": {
+      "type": "object",
+      "description": "Logging configuration",
+      "properties": {
+        "LogPath": { "type": "string" },
+        "MaxLogFileSizeMB": { "type": "integer", "minimum": 1, "maximum": 100 },
+        "MaxLogFiles": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "EnableFileLogging": { "type": "boolean" },
+        "EnableConsoleLogging": { "type": "boolean" },
+        "EnableTranscript": { "type": "boolean" }
+      }
+    },
+    "PDQ": {
+      "type": "object",
+      "description": "PDQ Inventory integration. Set ReportFolder and paths in Settings.",
+      "properties": {
+        "Enabled": { "type": "boolean" },
+        "ReportFolder": { "type": "string", "description": "UNC or local path to PDQ report folder (configure in Settings)" },
+        "ReportFilePattern": { "type": "string" }
+      }
+    },
+    "QUser": {
+      "type": "object",
+      "description": "QUser query settings",
+      "properties": {
+        "Enabled": { "type": "boolean" },
+        "CacheAgeMinutes": { "type": "integer", "minimum": 1, "maximum": 60 },
+        "TimeoutSeconds": { "type": "integer", "minimum": 5, "maximum": 60 },
+        "MaxComputersPerQuery": { "type": "integer", "minimum": 10, "maximum": 200 }
+      }
+    },
+    "Monitor": {
+      "type": "object",
+      "description": "Locked Monitor settings",
+      "properties": {
+        "StartWithWindows": { "type": "boolean" },
+        "StartMinimized": { "type": "boolean" },
+        "CloseToTray": { "type": "boolean" },
+        "ShowTrackedByDefault": { "type": "boolean" }
+      }
+    },
+    "Shortcuts": {
+      "type": "object",
+      "description": "Keyboard shortcuts",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "required": ["Application"]
+}

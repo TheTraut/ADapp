@@ -1,0 +1,38 @@
+*.csv
+
+# --- Build / binary outputs (don’t commit) ---
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.obj
+*.lib
+*.exp
+*.cache
+*.log
+*.zip
+*.7z
+*.msi
+*.nupkg
+
+# C# / .NET build output
+**/bin/
+**/obj/
+**/.vs/
+**/dist/
+
+# PowerShell module analysis / temp
+*.psd1.bak
+*.psm1.bak
+*.tmp
+*.temp
+
+# Windows / tooling
+Thumbs.db
+Desktop.ini
+
+# Local/secret settings overrides (never commit)
+config/settings.local.json
+config/settings.secret.json
+config/*.local.json
+config/*.secret.json

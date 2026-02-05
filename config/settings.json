@@ -1,0 +1,121 @@
+{
+    "$schema":  "./settings.schema.json",
+    "Monitor":  {
+                    "StartWithWindows":  true,
+                    "CloseToTray":  true,
+                    "ShowTrackedByDefault":  true,
+                    "StartMinimized":  false
+                },
+    "Application":  {
+                        "Title":  "AD Search Tool",
+                        "Version":  "1.0.17",
+                        "MainFormSize":  {
+                                             "Width":  1200,
+                                             "Height":  800
+                                         },
+                        "MinFormSize":  {
+                                            "Width":  800,
+                                            "Height":  600
+                                        }
+                    },
+    "UI":  {
+               "SearchButtonBackColor":  "#4a6fba",
+               "SearchButtonForeColor":  "#ffffff",
+               "Theme":  {
+                             "PrimaryColor":  "#4a6fba",
+                             "SecondaryColor":  "#f0f0f0",
+                             "BackgroundColor":  "#ffffff",
+                             "TextColor":  "#333333",
+                             "Mode":  "Light"
+                         },
+               "ThemeDark":  {
+                                 "SecondaryColor":  "#3e3e42",
+                                 "PrimaryColor":  "#2d2d30",
+                                 "BackgroundColor":  "#1e1e1e",
+                                 "TextColor":  "#e1e1e1"
+                             }
+           },
+    "Search":  {
+                   "IncludeDisabledDefault":  false,
+                   "ExactMatchDefault":  false,
+                   "MaxSearchHistory":  20,
+                   "AdvancedSearchDefault":  true
+               },
+    "AD":  {
+               "ADSyncDC":  "",
+               "ADSyncScriptPath":  "",
+               "PreferredDomainControllers":  [],
+               "UserBaseOU":  [],
+               "ComputerBaseOU":  [],
+               "GroupBaseOU":  [],
+               "ServerBaseOU":  []
+           },
+    "Connections":  {
+                        "VNCPassword":  "",
+                        "RDPTimeout":  30,
+                        "VNCViewOnly":  true,
+                        "VNCPath":  "C:\\\\Program Files\\\\uvnc bvba\\\\UltraVNC\\\\vncviewer.exe",
+                        "VNCTimeout":  30
+                    },
+    "Logging":  {
+                    "MaxLogFiles":  5,
+                    "EnableFileLogging":  true,
+                    "MaxLogFileSizeMB":  10,
+                    "EnableConsoleLogging":  true,
+                    "LogPath":  "C:\\ProgramData\\ADapp\\Logs",
+                    "EnableTranscript":  true,
+                    "EnableLogAutoRefresh":  true,
+                    "LogAutoRefreshInterval":  5,
+                    "LogViewTailLimit":  100
+                },
+    "Performance":  {
+                        "MaxConcurrentJobs":  5
+                    },
+    "Security":  {
+                     "RequireAdminPrivileges":  true,
+                     "ValidateInputs":  true,
+                     "SanitizeOutputs":  true,
+                     "EnableAuditLogging":  false
+                 },
+    "PDQ":  {
+                "ReportFolder":  "",
+                "Enabled":  true,
+                "ReportFilePattern":  "Logged in User.csv",
+                "Deploy":  {
+                               "ExecutablePath":  "C:\\Program Files (x86)\\Admin Arsenal\\PDQ Deploy\\PDQDeploy.exe",
+                               "Packages":  [],
+                               "Enabled":  true
+                           },
+                "InventoryCLI":  {
+                                     "CacheTimeoutMinutes":  15,
+                                     "ExecutablePath":  "C:\\Program Files (x86)\\Admin Arsenal\\PDQ Inventory\\PDQInventory.exe",
+                                     "Enabled":  true,
+                                     "AutoQueryMaxResults":  10,
+                                     "AutoQueryOnSelection":  true,
+                                     "AutoQueryOnSearch":  true
+                                 }
+            },
+    "QUser":  {
+                  "MaxComputersPerQuery":  50,
+                  "HistoricalDaysToKeep":  30,
+                  "CacheAgeMinutes":  1,
+                  "EnableHistoricalTracking":  true,
+                  "TimeoutSeconds":  10,
+                  "UseInvokeCommandFallback":  false,
+                  "Enabled":  true
+              },
+    "Data":  {
+                 "PreferredSharedPath":  ""
+             },
+    "Shortcuts":  {
+                      "FocusSearch":  "Ctrl+F",
+                      "ClearFilters":  "Esc",
+                      "NewSearch":  "Ctrl+N",
+                      "ConnectVNC":  "Ctrl+Alt+V",
+                      "ConnectPing":  "Ctrl+Alt+P",
+                      "ConnectRDP":  "Ctrl+Alt+R"
+                  },
+    "Printers":  {
+                     "PrintServer":  ""
+                 }
+}
