@@ -1,6 +1,6 @@
 # AD App Quick Start
 
-Use this guide for a production install. For full setup and configuration, see `docs/setup.md`.
+Use this guide for a production install. For full setup and configuration, see the GitHub repo docs (`docs/setup.md`).
 
 ## Install
 
@@ -24,6 +24,6 @@ Use this guide for a production install. For full setup and configuration, see `
 
 ## Need more?
 
-- Full setup/configuration: `docs/setup.md`
-- Usage guides: `docs/usage/`
+- Full setup/configuration: `docs/setup.md` (GitHub repo)
+- Usage guides: `docs/usage/` (GitHub repo)
 

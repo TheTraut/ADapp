@@ -5,6 +5,7 @@ Active Directory management application for IT administrators.
 ## Quick Start
 
 - For a fast start, see `QUICKSTART.md`.
+- The release package does not include documentation; use the GitHub repo docs.
 - Production install:
   - Unzip `dist/ADapp-Release.zip` (or your release zip)
   - Run `.\scripts\Install.ps1`
@@ -52,7 +53,7 @@ Example `%ProgramData%\ADapp\config\settings.local.json` (secrets):
 }
 ```
 
-More details in `docs/setup.md`.
+More details in the GitHub repo docs (`docs/setup.md`).
 
 ## Features
 
@@ -66,11 +67,11 @@ More details in `docs/setup.md`.
 ## Documentation
 
 - Quick start: `QUICKSTART.md`
-- Setup & configuration: `docs/setup.md`
-- Usage guides: `docs/usage/`
-- Architecture: `docs/architecture.md`
-- API reference: `docs/reference/index.md`
-- Dev style guide: `docs/dev/style-guide.md`
+- Setup & configuration: `docs/setup.md` (GitHub repo)
+- Usage guides: `docs/usage/` (GitHub repo)
+- Architecture: `docs/architecture.md` (GitHub repo)
+- API reference: `docs/reference/index.md` (GitHub repo)
+- Dev style guide: `docs/dev/style-guide.md` (GitHub repo)
 
 ## Development
 

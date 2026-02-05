@@ -53,7 +53,7 @@ try {
     Copy-IfExists -Source (Join-Path $repoRootPath 'assets') -Dest (Join-Path $staging 'assets') | Out-Null
 
     # Optional items
-    Copy-IfExists -Source (Join-Path $repoRootPath 'docs') -Dest (Join-Path $staging 'docs') | Out-Null
+    # Documentation is not packaged; it lives on the GitHub repo.
     # Installer scripts are expected in production packages.
     Copy-IfExists -Source (Join-Path $repoRootPath 'scripts\Install.ps1') -Dest (Join-Path $staging 'scripts\Install.ps1') | Out-Null
     Copy-IfExists -Source (Join-Path $repoRootPath 'scripts\Uninstall.ps1') -Dest (Join-Path $staging 'scripts\Uninstall.ps1') | Out-Null
