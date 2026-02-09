@@ -27,6 +27,14 @@
 *.tmp
 *.temp
 
+# Code signing artifacts (never commit)
+*.pfx
+*.p12
+*.cer
+*.crt
+*.pvk
+*.snk
+
 # Windows / tooling
 Thumbs.db
 Desktop.ini
