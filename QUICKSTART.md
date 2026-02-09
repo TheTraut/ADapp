@@ -12,6 +12,11 @@ Use this guide for a production install. For full setup and configuration, see t
    - `ADapp.exe`, or
    - `ADapp.ps1` (Run as Administrator)
 
+## Code signing (optional)
+
+- To self-sign the launchers locally (admin required):
+  - `.\scripts\Sign-Executables.ps1`
+
 ## Configure secrets (recommended)
 
 - Copy `config/settings.local.json.example` to:
