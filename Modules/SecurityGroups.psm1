@@ -743,7 +743,8 @@ function Show-GroupMembersDialog {
         $resultsListView.Size          = New-Object System.Drawing.Size(470, 280)
         $resultsListView.View          = [System.Windows.Forms.View]::Details
         $resultsListView.FullRowSelect = $true
-        $resultsListView.MultiSelect   = $true
+        $resultsListView.MultiSelect   = $false
+        $resultsListView.CheckBoxes    = $true
         $null = $resultsListView.Columns.Add("Name", 150)
         $null = $resultsListView.Columns.Add("Type", 100)
         $null = $resultsListView.Columns.Add("Distinguished Name", 200)
@@ -756,6 +757,29 @@ function Show-GroupMembersDialog {
         $okButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
         $searchDialog.AcceptButton = $okButton
         $searchDialog.Controls.Add($okButton)
+
+        # Track checked results across search refreshes
+        $checkedResults = [System.Collections.ArrayList]::new()
+        $searchResultsCache = @{}
+
+        $resultsListView.Add_ItemChecked({
+            $item = $_.Item
+            $member = $item.Tag
+            if (-not $member) { return }
+            $dn = [string]$member.DistinguishedName
+            if (-not $dn) { return }
+
+            if ($item.Checked) {
+                if (-not $checkedResults.Contains($dn)) {
+                    [void]$checkedResults.Add($dn)
+                }
+            }
+            else {
+                if ($checkedResults.Contains($dn)) {
+                    [void]$checkedResults.Remove($dn)
+                }
+            }
+        })
 
         $searchTextBox.Add_TextChanged({
             $resultsListView.BeginUpdate()
@@ -772,6 +796,14 @@ function Show-GroupMembersDialog {
                         $item.SubItems.Add($result.ObjectClass)
                         $item.SubItems.Add($result.DistinguishedName)
                         $item.Tag = $result
+                        $searchResultsCache[$result.DistinguishedName] = $result
+                        $alreadyMember = $originalMembers.ContainsKey($result.DistinguishedName)
+                        if ($alreadyMember -and -not $checkedResults.Contains($result.DistinguishedName)) {
+                            [void]$checkedResults.Add($result.DistinguishedName)
+                        }
+                        if ($alreadyMember -or $checkedResults.Contains($result.DistinguishedName)) {
+                            $item.Checked = $true
+                        }
                         [void]$resultsListView.Items.Add($item)
                     }
                 }
@@ -784,13 +816,17 @@ function Show-GroupMembersDialog {
         })
 
         if ($searchDialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {
-            foreach ($selectedItem in $resultsListView.SelectedItems) {
-                $member = $selectedItem.Tag
+            foreach ($dn in $checkedResults) {
+                if ($originalMembers.ContainsKey($dn)) { continue }
+                $member = $searchResultsCache[$dn]
+                if (-not $member) {
+                    try { $member = Get-ADObject -Identity $dn -Properties Name, ObjectClass, DistinguishedName } catch { $member = $null }
+                }
+                if (-not $member) { continue }
                 try {
-                    Add-ADGroupMember -Identity $groupIdentity -Members $member.DistinguishedName
-                    try { Write-AuditEvent -Action 'AddGroupMember' -Target "$($groupIdentity):$($member.DistinguishedName)" -Result 'Success' } catch {}
-                    $originalMembers[$member.DistinguishedName] = $member
-                    & $updateList
+                    Add-ADGroupMember -Identity $groupIdentity -Members $dn
+                    try { Write-AuditEvent -Action 'AddGroupMember' -Target "$($groupIdentity):$($dn)" -Result 'Success' } catch {}
+                    $originalMembers[$dn] = $member
                 }
                 catch {
                     Write-Log "Error adding member: $_" -Warning
@@ -802,6 +838,7 @@ function Show-GroupMembersDialog {
                     )
                 }
             }
+            & $updateList
         }
     })
 
