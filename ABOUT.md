@@ -1,6 +1,6 @@
 # Active Directory Management Tool
 
-Version: 1.0.16
+Version: 1.0.19
 
 ## Description
 A comprehensive Active Directory management tool built with PowerShell and Windows Forms. This application provides an intuitive interface for managing users, computers, groups, and other AD objects.

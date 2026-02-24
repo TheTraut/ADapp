@@ -8,7 +8,7 @@
                 },
     "Application":  {
                         "Title":  "AD Search Tool",
-                        "Version":  "1.0.17",
+                        "Version":  "1.0.19",
                         "MainFormSize":  {
                                              "Width":  1200,
                                              "Height":  800

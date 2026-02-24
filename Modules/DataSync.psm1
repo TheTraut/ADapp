@@ -184,13 +184,43 @@ function Read-JsonArraySafe {
     if (-not (Test-Path $Path)) { return @() }
     try {
         $raw = Get-Content -Path $Path -Raw -ErrorAction Stop
-        $obj = $raw | ConvertFrom-Json -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) { return @() }
+        $obj = $null
+        try {
+            $obj = $raw | ConvertFrom-Json -ErrorAction Stop
+        }
+        catch {
+            Write-DebugLog -Message "Read-JsonArraySafe parse error for '$Path', attempting repair" -Level "Warning"
+            $repairSearchFrom = 1
+            while ($repairSearchFrom -lt $raw.Length) {
+                $bracketIdx = $raw.IndexOf('[', $repairSearchFrom)
+                if ($bracketIdx -lt 0) { break }
+                $candidate = $raw.Substring($bracketIdx)
+                try {
+                    $obj = $candidate | ConvertFrom-Json -ErrorAction Stop
+                    Write-DebugLog -Message "Read-JsonArraySafe repair succeeded for '$Path' (offset $bracketIdx)" -Level "Info"
+                    try {
+                        $cleanJson = @($obj) | ConvertTo-Json -Depth 7
+                        $tempFile = $Path + ".tmp"
+                        Set-Content -Path $tempFile -Value $cleanJson -Encoding UTF8 -Force -ErrorAction Stop
+                        Move-Item -Path $tempFile -Destination $Path -Force -ErrorAction Stop
+                        Write-DebugLog -Message "Read-JsonArraySafe rewrote repaired JSON to '$Path'" -Level "Info"
+                    } catch {}
+                    break
+                } catch {}
+                $repairSearchFrom = $bracketIdx + 1
+            }
+            if ($null -eq $obj) {
+                Write-DebugLog -Message "Read-JsonArraySafe repair failed for '$Path' (no valid array found)" -Level "Warning"
+                return @()
+            }
+        }
         if ($null -eq $obj) { return @() }
         if ($obj -is [Array]) { return $obj }
         return @($obj)
     }
     catch {
-        Write-DebugLog -Message "Read-JsonArraySafe parse error for '$Path': $_" -Level "Warning"
+        Write-DebugLog -Message "Read-JsonArraySafe error for '$Path': $_" -Level "Warning"
         return @()
     }
 }
@@ -225,9 +255,14 @@ function Write-JsonArraySafe {
         if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
         $arr  = @($Array)
         $json = if ($arr.Count -eq 0) { "[]" } else { $arr | ConvertTo-Json -Depth 7 }
-        Set-Content -Path $Path -Value $json -Encoding UTF8 -Force -ErrorAction Stop
+        # Atomic write via temp file to prevent corruption from concurrent access
+        $tempFile = $Path + ".tmp"
+        Set-Content -Path $tempFile -Value $json -Encoding UTF8 -Force -ErrorAction Stop
+        Move-Item -Path $tempFile -Destination $Path -Force -ErrorAction Stop
     }
     catch {
+        $tempFile = $Path + ".tmp"
+        if (Test-Path $tempFile) { Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue }
         Write-DebugLog -Message "Write-JsonArraySafe failed for '$Path': $_" -Level "Warning"
         throw
     }
@@ -314,9 +349,13 @@ function Write-JsonLFileSafe {
         foreach ($e in $evtArray) {
             $lines += ($e | ConvertTo-Json -Compress -Depth 5)
         }
-        Set-Content -Path $Path -Value $lines -Encoding UTF8 -Force -ErrorAction Stop
+        $tempFile = $Path + ".tmp"
+        Set-Content -Path $tempFile -Value $lines -Encoding UTF8 -Force -ErrorAction Stop
+        Move-Item -Path $tempFile -Destination $Path -Force -ErrorAction Stop
     }
     catch {
+        $tempFile = $Path + ".tmp"
+        if (Test-Path $tempFile) { Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue }
         Write-DebugLog -Message "Write-JsonLFileSafe failed for '$Path': $_" -Level "Warning"
         throw
     }

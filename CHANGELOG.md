@@ -1,5 +1,25 @@
 # Change Log
 
+## Version 1.0.19 - AD object group management and favorites resilience
+
+### Group Management and AD Objects
+- Expanded `Attribute Editor...` to support any AD object type, not only users/computers
+- Expanded `Manage Groups` to support any AD object that can be a group member (users, computers, groups, contacts, etc.)
+- Added generic AD-object group membership operations in `Modules/SecurityGroups.psm1`:
+  - `Get-ADObjectSecurityGroups`
+  - `Add-ADObjectToSecurityGroup`
+  - `Remove-ADObjectFromSecurityGroup`
+- Updated group membership refresh logic to support distinguished-name based objects in the main UI
+
+### Favorites and Data Reliability
+- Hardened favorites loading with fallback reads when module-scope reads return empty data
+- Added JSON repair logic for corrupted/concatenated favorites JSON and automatic rewrite to clean JSON
+- Added atomic temp-file writes for JSON and JSONL persistence in `Modules/DataSync.psm1` to reduce corruption risk during concurrent writes
+
+### Group Dialog UX
+- Reworked `Show-GroupManagementDialog` to focus on currently selected memberships plus explicit `Add...` search flow
+- Increased dialog size, improved list behavior, and fixed checked-state refresh edge cases
+
 ## Version 1.0.18 - Configuration, PDQ pathing, and installer improvements
 
 ### UI/UX
@@ -276,6 +296,3 @@
 - Windows Forms assemblies
 - VNC viewer (optional, for remote access)
 
-## [1.0.15] - UNRELEASED
-### Changed
-- In the computer details view, updated the per-computer session handling to call `Update-CentralizedUserLogonCSV -SpecificComputer` instead of the legacy index update function so that the centralized database now reflects live session data immediately.

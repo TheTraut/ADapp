@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 
 <#
 .SYNOPSIS
@@ -364,21 +364,168 @@ function Get-WorkstationSecurityGroups {
     }
 }
 
+function Get-ADObjectSecurityGroups {
+    <#
+    .SYNOPSIS
+        Retrieves the security groups an AD object (user, computer, group, contact, etc.) belongs to.
+    .DESCRIPTION
+        Looks up the object's MemberOf attribute via Get-ADObject, then resolves each
+        group to return name, description, scope, category, and primary SMTP email
+        address. Results are sorted by name. Works for any AD object that can be
+        a group member.
+    .PARAMETER ObjectIdentity
+        The DistinguishedName or other identity (GUID, SID) of the AD object to query.
+    .OUTPUTS
+        System.Management.Automation.PSCustomObject[]
+        Each object contains Name, Description, GroupScope, GroupCategory, and Email.
+        Returns $null on failure.
+    .EXAMPLE
+        Get-ADObjectSecurityGroups -ObjectIdentity 'CN=MyGroup,OU=Groups,DC=contoso,DC=com'
+        Lists every group that the given object is a member of.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ObjectIdentity
+    )
+
+    try {
+        $obj = Get-ADObject -Identity $ObjectIdentity -Properties MemberOf -ErrorAction Stop
+        if (-not $obj.MemberOf -or $obj.MemberOf.Count -eq 0) {
+            Write-Log "Object has no group memberships"
+            return @()
+        }
+        $groups = $obj.MemberOf | ForEach-Object {
+            Get-ADGroup -Identity $_ -Properties Name, Description, GroupScope, GroupCategory, mail, proxyAddresses |
+            Select-Object `
+                Name, `
+                Description, `
+                GroupScope, `
+                GroupCategory, `
+                @{ Name = 'Email'; Expression = {
+                    if ($_.mail) { return [string]$_.mail }
+                    $p = $null
+                    if ($_.proxyAddresses) {
+                        $p = $_.proxyAddresses | Where-Object { $_ -cmatch '^SMTP:' } | Select-Object -First 1
+                        if (-not $p) { $p = $_.proxyAddresses | Where-Object { $_ -cmatch '^smtp:' } | Select-Object -First 1 }
+                    }
+                    if ($p) { return ([string]$p -replace '^(SMTP|smtp):', '') }
+                    return ''
+                }}
+        } | Sort-Object Name
+
+        Write-Log "Retrieved $($groups.Count) groups for object $ObjectIdentity"
+        return $groups
+    }
+    catch {
+        Write-Log "Error retrieving groups for AD object: $_" -Warning
+        return $null
+    }
+}
+
+function Add-ADObjectToSecurityGroup {
+    <#
+    .SYNOPSIS
+        Adds an AD object to a security or distribution group.
+    .DESCRIPTION
+        Validates that the object and group exist in Active Directory, then
+        adds the object (by DistinguishedName) as a member of the specified
+        group. Works for users, computers, groups, contacts, and any other
+        object that can be a group member.
+    .PARAMETER ObjectIdentity
+        The DistinguishedName (or other identity) of the object to add.
+    .PARAMETER GroupName
+        The identity of the target security or distribution group.
+    .OUTPUTS
+        System.Boolean. Returns $true on success, $false on failure.
+    .EXAMPLE
+        Add-ADObjectToSecurityGroup -ObjectIdentity 'CN=MyGroup,OU=Groups,DC=contoso,DC=com' -GroupName 'Sync-Group'
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ObjectIdentity,
+
+        [Parameter(Mandatory = $true)]
+        [string]$GroupName
+    )
+
+    try {
+        $group = Get-ADGroup -Identity $GroupName -ErrorAction Stop
+        # Resolve object to DN if a name or other identity was passed
+        $obj = Get-ADObject -Identity $ObjectIdentity -ErrorAction Stop
+        $objectDN = $obj.DistinguishedName
+
+        Add-ADGroupMember -Identity $group -Members $objectDN -ErrorAction Stop
+        try { Write-AuditEvent -Action 'AddGroupMember' -Target "$($group):$objectDN" -Result 'Success' } catch {}
+
+        Write-Log "Added object $ObjectIdentity to group $GroupName successfully"
+        return $true
+    }
+    catch {
+        Write-Log "Error adding AD object to security group: $_" -Warning
+        return $false
+    }
+}
+
+function Remove-ADObjectFromSecurityGroup {
+    <#
+    .SYNOPSIS
+        Removes an AD object from a security or distribution group.
+    .DESCRIPTION
+        Validates that the object and group exist in Active Directory, then
+        removes the object from the specified group. Works for users, computers,
+        groups, contacts, and any other object that can be a group member.
+    .PARAMETER ObjectIdentity
+        The DistinguishedName (or other identity) of the object to remove.
+    .PARAMETER GroupName
+        The identity of the target security or distribution group.
+    .OUTPUTS
+        System.Boolean. Returns $true on success, $false on failure.
+    .EXAMPLE
+        Remove-ADObjectFromSecurityGroup -ObjectIdentity 'CN=MyGroup,OU=Groups,DC=contoso,DC=com' -GroupName 'Sync-Group'
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ObjectIdentity,
+
+        [Parameter(Mandatory = $true)]
+        [string]$GroupName
+    )
+
+    try {
+        $group = Get-ADGroup -Identity $GroupName -ErrorAction Stop
+        $obj = Get-ADObject -Identity $ObjectIdentity -ErrorAction Stop
+        $objectDN = $obj.DistinguishedName
+
+        Remove-ADGroupMember -Identity $group -Members $objectDN -Confirm:$false -ErrorAction Stop
+        try { Write-AuditEvent -Action 'RemoveGroupMember' -Target "$($group):$objectDN" -Result 'Success' } catch {}
+
+        Write-Log "Removed object $ObjectIdentity from group $GroupName successfully"
+        return $true
+    }
+    catch {
+        Write-Log "Error removing AD object from security group: $_" -Warning
+        return $false
+    }
+}
+
 function Show-GroupManagementDialog {
     <#
     .SYNOPSIS
         Displays a dialog for selecting security groups to add or remove.
     .DESCRIPTION
-        Presents a searchable, checkbox-enabled list of all AD groups (with
-        restricted built-in groups filtered out). Groups that the target
-        object already belongs to are pre-checked. On confirmation the
-        function returns a hashtable describing which groups to add and which
-        to remove.
+        Presents the groups the target object currently belongs to in a
+        searchable, checkbox-enabled list. New groups can be added via an
+        "Add..." search dialog. Unchecking a group marks it for removal.
+        On confirmation the function returns a hashtable describing which
+        groups to add and which to remove.
     .PARAMETER Title
         The title text shown in the dialog window title bar.
     .PARAMETER CurrentGroups
         An array of group names the target object currently belongs to.
-        These groups will be pre-checked in the list.
+        These are shown in the initial list; uncheck to remove.
     .PARAMETER IsComputer
         When $true, indicates the target is a computer object. Defaults to
         $false (user object).
@@ -388,7 +535,7 @@ function Show-GroupManagementDialog {
         array of group names. Returns $null if the user cancels.
     .EXAMPLE
         $changes = Show-GroupManagementDialog -Title 'Groups for jsmith' -CurrentGroups @('VPN-Users','Staff')
-        Opens the dialog pre-checking VPN-Users and Staff.
+        Opens the dialog showing VPN-Users and Staff; use Add... to add more.
     #>
     [CmdletBinding()]
     param(
@@ -401,7 +548,7 @@ function Show-GroupManagementDialog {
 
     $dialog = New-Object System.Windows.Forms.Form
     $dialog.Text              = $Title
-    $dialog.Size              = New-Object System.Drawing.Size(780, 500)
+    $dialog.Size              = New-Object System.Drawing.Size(800, 600)
     $dialog.StartPosition     = "CenterParent"
     $dialog.FormBorderStyle   = "FixedDialog"
     $dialog.MaximizeBox       = $false
@@ -420,10 +567,10 @@ function Show-GroupManagementDialog {
 
     $groupListView = New-Object System.Windows.Forms.ListView
     $groupListView.Location      = New-Object System.Drawing.Point(10, 40)
-    $groupListView.Size          = New-Object System.Drawing.Size(745, 350)
+    $groupListView.Size          = New-Object System.Drawing.Size(765, 450)
     $groupListView.View          = [System.Windows.Forms.View]::Details
     $groupListView.FullRowSelect = $true
-    $groupListView.MultiSelect   = $false
+    $groupListView.MultiSelect   = $true
     $groupListView.CheckBoxes    = $true
 
     $null = $groupListView.Columns.Add("Name", 200)
@@ -437,13 +584,19 @@ function Show-GroupManagementDialog {
     $dialog.Controls.Add($groupListView)
 
     $statusLabel = New-Object System.Windows.Forms.Label
-    $statusLabel.Location = New-Object System.Drawing.Point(10, 400)
-    $statusLabel.Size     = New-Object System.Drawing.Size(745, 20)
+    $statusLabel.Location = New-Object System.Drawing.Point(10, 500)
+    $statusLabel.Size     = New-Object System.Drawing.Size(765, 20)
     $statusLabel.Text     = "Loading groups..."
     $dialog.Controls.Add($statusLabel)
 
+    $addButton = New-Object System.Windows.Forms.Button
+    $addButton.Location = New-Object System.Drawing.Point(610, 530)
+    $addButton.Size     = New-Object System.Drawing.Size(75, 23)
+    $addButton.Text     = "Add..."
+    $dialog.Controls.Add($addButton)
+
     $okButton = New-Object System.Windows.Forms.Button
-    $okButton.Location     = New-Object System.Drawing.Point(580, 430)
+    $okButton.Location     = New-Object System.Drawing.Point(700, 530)
     $okButton.Size         = New-Object System.Drawing.Size(75, 23)
     $okButton.Text         = "OK"
     $okButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
@@ -451,16 +604,15 @@ function Show-GroupManagementDialog {
     $dialog.Controls.Add($okButton)
 
     $cancelButton = New-Object System.Windows.Forms.Button
-    $cancelButton.Location     = New-Object System.Drawing.Point(670, 430)
+    $cancelButton.Location     = New-Object System.Drawing.Point(520, 530)
     $cancelButton.Size         = New-Object System.Drawing.Size(75, 23)
     $cancelButton.Text         = "Cancel"
     $cancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
     $dialog.CancelButton       = $cancelButton
     $dialog.Controls.Add($cancelButton)
 
+    # All (non-restricted) groups for the Add... search dialog
     $allGroups = Get-ADSecurityGroups
-
-    # Prevent accidental modification of sensitive built-in groups
     $restrictedGroups = @(
         "Schema Admins", "Key Admins", "Enterprise Admins", "Domain Admins",
         "Administrators", "Hyper-V Administrators", "Domain Controllers",
@@ -474,66 +626,80 @@ function Show-GroupManagementDialog {
         "Enterprise Read-only Domain Controllers", "Cloneable Domain Controllers",
         "DnsAdmins", "DnsUpdateProxy", "Enterprise Key Admins"
     )
-
     $allGroups = $allGroups | Where-Object { $restrictedGroups -notcontains $_.Name }
 
-    # Track checked state independently so it survives search/filter refreshes
-    $checkedGroups = [System.Collections.ArrayList]::new()
+    # Selected groups: name -> group object. Initial = current memberships; display list is built from this.
+    $selectedGroups = @{}
     if ($CurrentGroups) {
-        $checkedGroups.AddRange($CurrentGroups)
+        foreach ($name in $CurrentGroups) {
+            if ([string]::IsNullOrWhiteSpace($name)) { continue }
+            $obj = $allGroups | Where-Object { $_.Name -eq $name } | Select-Object -First 1
+            if (-not $obj) {
+                $obj = [PSCustomObject]@{ Name = $name; Description = ""; Email = ""; GroupCategory = "Security"; GroupScope = "Global" }
+            }
+            $selectedGroups[$name] = $obj
+        }
     }
 
+    # Prevents ItemChecked from modifying $selectedGroups or re-calling $updateList while we're populating (avoids "collection was modified" and wrong removals)
+    $inUpdateList = $false
+
     $groupListView.Add_ItemChecked({
+        if ($inUpdateList) { return }
         $item = $_.Item
-        if ($item.Checked) {
-            if (-not $checkedGroups.Contains($item.Text)) {
-                [void]$checkedGroups.Add($item.Text)
-            }
-        }
-        else {
-            if ($checkedGroups.Contains($item.Text)) {
-                [void]$checkedGroups.Remove($item.Text)
+        if (-not $item.Checked) {
+            $name = $item.Text
+            if ($selectedGroups.ContainsKey($name)) {
+                $selectedGroups.Remove($name)
+                & $updateList
             }
         }
     })
 
-    # Rebuild the ListView contents based on the current search text
+    # Rebuild the main list from $selectedGroups (filtered by search); all shown are checked
     $updateList = {
         $groupListView.BeginUpdate()
         $groupListView.Items.Clear()
         $searchText = $searchBox.Text.ToLower()
 
-        $filteredGroups = $allGroups
+        # Snapshot so we don't enumerate the live hashtable (avoids "collection was modified" if ItemChecked fires)
+        $toShow = @($selectedGroups.Values)
         if ($searchText) {
-            $filteredGroups = $allGroups | Where-Object {
+            $toShow = $toShow | Where-Object {
                 $_.Name.ToLower().Contains($searchText) -or
                 ($_.Description -and $_.Description.ToLower().Contains($searchText)) -or
                 ($_.Email -and $_.Email.ToLower().Contains($searchText))
             }
         }
 
-        foreach ($group in $filteredGroups) {
-            try {
-                $item = New-Object System.Windows.Forms.ListViewItem($group.Name)
-                $item.SubItems.Add($(if ($group.Description) { $group.Description } else { "" }))
-                $item.SubItems.Add($(if ($group.PSObject.Properties.Match('Email').Count -gt 0 -and $group.Email) { $group.Email } else { "" }))
-                $item.SubItems.Add($group.GroupCategory.ToString())
-                $item.SubItems.Add($group.GroupScope.ToString())
-                $item.Tag = $group
-
-                if ($checkedGroups.Contains($group.Name)) {
+        $inUpdateList = $true
+        try {
+            $itemsToAdd = [System.Collections.Generic.List[System.Windows.Forms.ListViewItem]]::new()
+            foreach ($group in $toShow) {
+                try {
+                    $item = New-Object System.Windows.Forms.ListViewItem($group.Name)
+                    $item.SubItems.Add($(if ($group.Description) { $group.Description } else { "" }))
+                    $item.SubItems.Add($(if ($group.PSObject.Properties.Match('Email').Count -gt 0 -and $group.Email) { $group.Email } else { "" }))
+                    $item.SubItems.Add($group.GroupCategory.ToString())
+                    $item.SubItems.Add($group.GroupScope.ToString())
+                    $item.Tag = $group
                     $item.Checked = $true
+                    [void]$itemsToAdd.Add($item)
                 }
-
-                [void]$groupListView.Items.Add($item)
+                catch {
+                    Write-Log "Error adding group to list: $($group.Name) - $_" -Warning
+                    continue
+                }
             }
-            catch {
-                Write-Log "Error adding group to list: $($group.Name) - $_" -Warning
-                continue
+            if ($itemsToAdd.Count -gt 0) {
+                $groupListView.Items.AddRange($itemsToAdd.ToArray())
             }
         }
+        finally {
+            $inUpdateList = $false
+        }
 
-        $statusLabel.Text = "Found $($filteredGroups.Count) groups"
+        $statusLabel.Text = "Found $($itemsToAdd.Count) groups"
         $groupListView.EndUpdate()
     }
 
@@ -541,16 +707,129 @@ function Show-GroupManagementDialog {
         & $updateList
     })
 
-    # Initial population
-    & $updateList
+    # Defer initial list population until after the form (and ListView) have handles to avoid ListView index 0 crash
+    $dialog.Add_Load({
+        & $updateList
+    })
+
+    # Add... button: open searchable group picker; add selected groups to $selectedGroups and refresh
+    $addButton.Add_Click({
+        $addForm = New-Object System.Windows.Forms.Form
+        $addForm.Text            = "Add Groups"
+        $addForm.Size            = New-Object System.Drawing.Size(500, 400)
+        $addForm.StartPosition   = "CenterParent"
+        $addForm.FormBorderStyle = "FixedDialog"
+        $addForm.MaximizeBox     = $false
+        $addForm.MinimizeBox     = $false
+
+        $addSearchLabel = New-Object System.Windows.Forms.Label
+        $addSearchLabel.Location = New-Object System.Drawing.Point(10, 10)
+        $addSearchLabel.Size     = New-Object System.Drawing.Size(100, 20)
+        $addSearchLabel.Text     = "Search:"
+        $addForm.Controls.Add($addSearchLabel)
+
+        $addSearchBox = New-Object System.Windows.Forms.TextBox
+        $addSearchBox.Location = New-Object System.Drawing.Point(110, 10)
+        $addSearchBox.Size     = New-Object System.Drawing.Size(370, 20)
+        $addForm.Controls.Add($addSearchBox)
+
+        $addListView = New-Object System.Windows.Forms.ListView
+        $addListView.Location      = New-Object System.Drawing.Point(10, 40)
+        $addListView.Size          = New-Object System.Drawing.Size(470, 280)
+        $addListView.View          = [System.Windows.Forms.View]::Details
+        $addListView.FullRowSelect = $true
+        $addListView.MultiSelect   = $false
+        $addListView.CheckBoxes    = $true
+        $null = $addListView.Columns.Add("Name", 150)
+        $null = $addListView.Columns.Add("Description", 200)
+        $null = $addListView.Columns.Add("Group Type", 100)
+        $addForm.Controls.Add($addListView)
+
+        $addOkButton = New-Object System.Windows.Forms.Button
+        $addOkButton.Location     = New-Object System.Drawing.Point(405, 330)
+        $addOkButton.Size         = New-Object System.Drawing.Size(75, 23)
+        $addOkButton.Text         = "Add"
+        $addOkButton.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        $addForm.AcceptButton     = $addOkButton
+        $addForm.Controls.Add($addOkButton)
+
+        $addCancelButton = New-Object System.Windows.Forms.Button
+        $addCancelButton.Location     = New-Object System.Drawing.Point(320, 330)
+        $addCancelButton.Size         = New-Object System.Drawing.Size(75, 23)
+        $addCancelButton.Text         = "Cancel"
+        $addCancelButton.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+        $addForm.CancelButton         = $addCancelButton
+        $addForm.Controls.Add($addCancelButton)
+
+        # Track which groups user checked in the Add dialog (across search refreshes)
+        $checkedAddNames = [System.Collections.ArrayList]::new()
+
+        $addListView.Add_ItemChecked({
+            $item = $_.Item
+            $name = $item.Text
+            if ($item.Checked) {
+                if (-not $checkedAddNames.Contains($name)) {
+                    [void]$checkedAddNames.Add($name)
+                }
+            }
+            else {
+                if ($checkedAddNames.Contains($name)) {
+                    [void]$checkedAddNames.Remove($name)
+                }
+            }
+        })
+
+        $addSearchBox.Add_TextChanged({
+            $addListView.BeginUpdate()
+            $addListView.Items.Clear()
+            $searchText = $addSearchBox.Text.Trim().ToLower()
+
+            if ($searchText.Length -ge 2) {
+                $filtered = $allGroups | Where-Object {
+                    $_.Name.ToLower().Contains($searchText) -or
+                    ($_.Description -and $_.Description.ToLower().Contains($searchText)) -or
+                    ($_.Email -and $_.Email.ToLower().Contains($searchText))
+                }
+                foreach ($group in $filtered) {
+                    $item = New-Object System.Windows.Forms.ListViewItem($group.Name)
+                    $item.SubItems.Add($(if ($group.Description) { $group.Description } else { "" }))
+                    $item.SubItems.Add($group.GroupCategory.ToString())
+                    $item.Tag = $group
+                    $alreadySelected = $selectedGroups.ContainsKey($group.Name)
+                    if ($alreadySelected -or $checkedAddNames.Contains($group.Name)) {
+                        if (-not $checkedAddNames.Contains($group.Name)) {
+                            [void]$checkedAddNames.Add($group.Name)
+                        }
+                    }
+                    [void]$addListView.Items.Add($item)
+                    if ($alreadySelected -or $checkedAddNames.Contains($group.Name)) {
+                        $item.Checked = $true
+                    }
+                }
+            }
+            $addListView.EndUpdate()
+        })
+
+        if ($addForm.ShowDialog($dialog) -eq [System.Windows.Forms.DialogResult]::OK) {
+            foreach ($name in $checkedAddNames) {
+                if ($selectedGroups.ContainsKey($name)) { continue }
+                $obj = $allGroups | Where-Object { $_.Name -eq $name } | Select-Object -First 1
+                if (-not $obj) {
+                    $obj = [PSCustomObject]@{ Name = $name; Description = ""; Email = ""; GroupCategory = "Security"; GroupScope = "Global" }
+                }
+                $selectedGroups[$name] = $obj
+            }
+            & $updateList
+        }
+    })
 
     $result = $dialog.ShowDialog()
 
     if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
-        # Diff current vs. checked to determine what changed
+        $selectedNames = @($selectedGroups.Keys)
         return @{
-            ToAdd    = $checkedGroups | Where-Object { $CurrentGroups -notcontains $_ }
-            ToRemove = $CurrentGroups | Where-Object { $checkedGroups -notcontains $_ }
+            ToAdd    = $selectedNames | Where-Object { $CurrentGroups -notcontains $_ }
+            ToRemove = $CurrentGroups | Where-Object { $selectedNames -notcontains $_ }
         }
     }
 
@@ -883,6 +1162,9 @@ Export-ModuleMember -Function @(
     'Remove-WorkstationFromSecurityGroup',
     'Get-UserSecurityGroups',
     'Get-WorkstationSecurityGroups',
+    'Get-ADObjectSecurityGroups',
+    'Add-ADObjectToSecurityGroup',
+    'Remove-ADObjectFromSecurityGroup',
     'Show-GroupManagementDialog',
     'Show-GroupMembersDialog'
 )

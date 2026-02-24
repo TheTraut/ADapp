@@ -9,7 +9,7 @@
 .PARAMETER WhatIf
     Show what would be changed without making changes.
 .EXAMPLE
-    .\tools\Sync-Version.ps1 -Version "1.0.18"
+    .\tools\Sync-Version.ps1 -Version "1.0.19"
 #>
 param(
     [Parameter(Mandatory=$true)]

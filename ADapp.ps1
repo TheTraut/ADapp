@@ -2862,24 +2862,12 @@ $enableDisableMenuItem.Add_Click({
 })
 [void]$adMenu.DropDownItems.Add($enableDisableMenuItem)
 
-# Add Attribute Editor menu item (User + Computer)
+# Add Attribute Editor menu item (any AD object)
 $attributeEditorMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem
 $attributeEditorMenuItem.Text = "Attribute Editor..."
 $attributeEditorMenuItem.Add_Click({
-    $sel = Require-CurrentSelection -ExpectedType "" -Title "Attribute Editor" -Message "Please select a user or computer from the results list."
+    $sel = Require-CurrentSelection -ExpectedType "" -Title "Attribute Editor" -Message "Please select an item from the results list."
     if (-not $sel) { return }
-
-    if ($sel.Type -ne "Computer" -and $sel.Type -ne "User") {
-        try {
-            [System.Windows.Forms.MessageBox]::Show(
-                "Please select a user or computer from the results list.",
-                "Attribute Editor",
-                [System.Windows.Forms.MessageBoxButtons]::OK,
-                [System.Windows.Forms.MessageBoxIcon]::Information
-            ) | Out-Null
-        } catch {}
-        return
-    }
 
     $itemName = $sel.Name
     if ([string]::IsNullOrWhiteSpace($itemName)) { return }
@@ -2895,8 +2883,23 @@ $attributeEditorMenuItem.Add_Click({
     try {
         if ($sel.Type -eq "User") {
             $adObj = Get-ADUser -Identity $normName -Properties * -ErrorAction Stop
-        } else {
+        } elseif ($sel.Type -eq "Computer") {
             $adObj = Get-ADComputer -Identity $normName -Properties * -ErrorAction Stop
+        } else {
+            # Any other AD object type (Group, Printer, contact, etc.): use DN from Tag or filter by Name
+            $identity = $null
+            if ($sel.Tag -and -not [string]::IsNullOrWhiteSpace($sel.Tag.DistinguishedName)) {
+                $identity = $sel.Tag.DistinguishedName
+            }
+            if ($identity) {
+                $adObj = Get-ADObject -Identity $identity -Properties * -ErrorAction Stop
+            } else {
+                $escapedName = $itemName -replace "'", "''"
+                $adObj = Get-ADObject -Filter "Name -eq '$escapedName'" -Properties * -ErrorAction Stop | Select-Object -First 1
+                if (-not $adObj) {
+                    throw "No AD object found with Name '$itemName'"
+                }
+            }
         }
     }
     catch {
@@ -2909,8 +2912,10 @@ $attributeEditorMenuItem.Add_Click({
         return
     }
 
-    $displayId = if ($sel.Type -eq "User") { $adObj.SamAccountName } else { $adObj.Name }
-    if ([string]::IsNullOrWhiteSpace($displayId)) { $displayId = $normName }
+    $displayId = $itemName
+    if ($sel.Type -eq "User" -and $adObj.SamAccountName) { $displayId = $adObj.SamAccountName }
+    elseif ($sel.Type -eq "Computer" -and $adObj.Name) { $displayId = $adObj.Name }
+    elseif ($adObj.Name) { $displayId = $adObj.Name }
 
     $attrForm = New-Object System.Windows.Forms.Form
     $attrForm.Text = "Attribute Editor - $($sel.Type): $displayId"
@@ -3097,53 +3102,59 @@ $attributeEditorMenuItem.Add_Click({
 })
 [void]$adMenu.DropDownItems.Add($attributeEditorMenuItem)
 
-# Add Manage Groups menu item
+# Add Manage Groups menu item (any AD object that can be a group member)
 $manageGroupsMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem
 $manageGroupsMenuItem.Text = "Manage Groups"
 $manageGroupsMenuItem.Add_Click({
-    $sel = Require-CurrentSelection -ExpectedType "" -Title "Manage Groups" -Message "Please select a user or computer from the results list."
+    $sel = Require-CurrentSelection -ExpectedType "" -Title "Manage Groups" -Message "Please select an item from the results list (user, computer, group, etc.)."
     if (-not $sel) { return }
 
-    if ($sel.Type -ne "Computer" -and $sel.Type -ne "User") {
-        try {
-            [System.Windows.Forms.MessageBox]::Show(
-                "Please select a user or computer from the results list.",
-                "Manage Groups",
-                [System.Windows.Forms.MessageBoxButtons]::OK,
-                [System.Windows.Forms.MessageBoxIcon]::Information
-            ) | Out-Null
-        } catch {}
-        return
+    $itemName = $sel.Name
+    if ([string]::IsNullOrWhiteSpace($itemName)) { return }
+
+    $isComputer = ($sel.Type -eq "Computer")
+    $isUser = ($sel.Type -eq "User")
+    $objectIdentity = $null
+    if ($isUser) {
+        $objectIdentity = $itemName
+    } elseif ($isComputer) {
+        $objectIdentity = $itemName.Split('.')[0].TrimEnd('$')
+    } else {
+        if ($sel.Tag -and -not [string]::IsNullOrWhiteSpace($sel.Tag.DistinguishedName)) {
+            $objectIdentity = $sel.Tag.DistinguishedName
+        } else {
+            $escapedName = $itemName -replace "'", "''"
+            $obj = Get-ADObject -Filter "Name -eq '$escapedName'" -ErrorAction Stop | Select-Object -First 1
+            if (-not $obj -or -not $obj.DistinguishedName) {
+                [System.Windows.Forms.MessageBox]::Show(
+                    "Could not resolve AD object identity for '$itemName'. Ensure the item has a DistinguishedName (e.g. from search results).",
+                    "Manage Groups",
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Warning
+                ) | Out-Null
+                return
+            }
+            $objectIdentity = $obj.DistinguishedName
+        }
     }
 
-    $itemName = $sel.Name
-    $isComputer = ($sel.Type -eq "Computer")
-    
     try {
         # Get current groups
-        $currentGroups = @()  # Initialize as empty array
-        
+        $currentGroups = @()
         if ($isComputer) {
-            $groups = Get-WorkstationSecurityGroups -ComputerName $itemName
-            if ($groups) {
-                $currentGroups = $groups | Where-Object { $_ -ne $null } | Select-Object -ExpandProperty Name
-            }
+            $groups = Get-WorkstationSecurityGroups -ComputerName $objectIdentity
+            if ($groups) { $currentGroups = $groups | Where-Object { $_ -ne $null } | Select-Object -ExpandProperty Name }
+        } elseif ($isUser) {
+            $groups = Get-UserSecurityGroups -Username $objectIdentity
+            if ($groups) { $currentGroups = $groups | Where-Object { $_ -ne $null } | Select-Object -ExpandProperty Name }
         } else {
-            $groups = Get-UserSecurityGroups -Username $itemName
-            if ($groups) {
-                $currentGroups = $groups | Where-Object { $_ -ne $null } | Select-Object -ExpandProperty Name
-            }
+            $groups = Get-ADObjectSecurityGroups -ObjectIdentity $objectIdentity
+            if ($groups) { $currentGroups = $groups | Where-Object { $_ -ne $null } | Select-Object -ExpandProperty Name }
         }
-        
-        # Show group management dialog
-        $title = if ($isComputer) {
-            "Manage Groups - Computer: $itemName"
-        } else {
-            "Manage Groups - User: $itemName"
-        }
-        
-        $changes = Show-GroupManagementDialog -Title $title -CurrentGroups $currentGroups -IsComputer $isComputer
-        
+
+        $title = "Manage Groups - $($sel.Type): $itemName"
+        $changes = Show-GroupManagementDialog -Title $title -CurrentGroups $currentGroups -IsComputer $false
+
         if ($changes) {
             if ($global:progressBar -and $global:progressBar.PSObject.Properties.Name -contains "Visible") {
                 $global:progressBar.Value = 0
@@ -3153,74 +3164,50 @@ $manageGroupsMenuItem.Add_Click({
             if ($global:statusLabel -and $global:statusLabel.PSObject.Properties.Name -contains "Text") {
                 $global:statusLabel.Text = "Updating group memberships..."
             }
-            
-            # Process removals
+
             foreach ($group in $changes.ToRemove) {
                 if ([string]::IsNullOrWhiteSpace($group)) { continue }
-                
                 if ($global:statusLabel -and $global:statusLabel.PSObject.Properties.Name -contains "Text") {
                     $global:statusLabel.Text = "Removing from group: $group"
                 }
-                if ($form -and $form.PSObject.Properties.Name -contains "Refresh") {
-                    $form.Refresh()
-                }
-                
+                if ($form -and $form.PSObject.Properties.Name -contains "Refresh") { $form.Refresh() }
+
                 if ($isComputer) {
-                    $result = Remove-WorkstationFromSecurityGroup -ComputerName $itemName -GroupName $group
-                    if (-not $result) {
-                        throw "Failed to remove computer from group $group"
-                    }
+                    $result = Remove-WorkstationFromSecurityGroup -ComputerName $objectIdentity -GroupName $group
+                } elseif ($isUser) {
+                    $result = Remove-UserFromSecurityGroup -Username $objectIdentity -GroupName $group
                 } else {
-                    $result = Remove-UserFromSecurityGroup -Username $itemName -GroupName $group
-                    if (-not $result) {
-                        throw "Failed to remove user from group $group"
-                    }
+                    $result = Remove-ADObjectFromSecurityGroup -ObjectIdentity $objectIdentity -GroupName $group
                 }
-                
-                if ($global:progressBar -and $global:progressBar.PSObject.Properties.Name -contains "Visible") {
-                    $global:progressBar.Value++
-                }
+                if (-not $result) { throw "Failed to remove from group $group" }
+                if ($global:progressBar -and $global:progressBar.PSObject.Properties.Name -contains "Visible") { $global:progressBar.Value++ }
             }
-            
-            # Process additions
+
             foreach ($group in $changes.ToAdd) {
                 if ([string]::IsNullOrWhiteSpace($group)) { continue }
-                
                 if ($global:statusLabel -and $global:statusLabel.PSObject.Properties.Name -contains "Text") {
                     $global:statusLabel.Text = "Adding to group: $group"
                 }
-                if ($form -and $form.PSObject.Properties.Name -contains "Refresh") {
-                    $form.Refresh()
-                }
-                
+                if ($form -and $form.PSObject.Properties.Name -contains "Refresh") { $form.Refresh() }
+
                 if ($isComputer) {
-                    $result = Add-WorkstationToSecurityGroup -ComputerName $itemName -GroupName $group
-                    if (-not $result) {
-                        throw "Failed to add computer to group $group"
-                    }
+                    $result = Add-WorkstationToSecurityGroup -ComputerName $objectIdentity -GroupName $group
+                } elseif ($isUser) {
+                    $result = Add-UserToSecurityGroup -Username $objectIdentity -GroupName $group
                 } else {
-                    $result = Add-UserToSecurityGroup -Username $itemName -GroupName $group
-                    if (-not $result) {
-                        throw "Failed to add user to group $group"
-                    }
+                    $result = Add-ADObjectToSecurityGroup -ObjectIdentity $objectIdentity -GroupName $group
                 }
-                
-                if ($global:progressBar -and $global:progressBar.PSObject.Properties.Name -contains "Visible") {
-                    $global:progressBar.Value++
-                }
+                if (-not $result) { throw "Failed to add to group $group" }
+                if ($global:progressBar -and $global:progressBar.PSObject.Properties.Name -contains "Visible") { $global:progressBar.Value++ }
             }
-            
-            if ($global:progressBar -and $global:progressBar.PSObject.Properties.Name -contains "Visible") {
-                $global:progressBar.Visible = $false
-            }
+
+            if ($global:progressBar -and $global:progressBar.PSObject.Properties.Name -contains "Visible") { $global:progressBar.Visible = $false }
             if ($global:statusLabel -and $global:statusLabel.PSObject.Properties.Name -contains "Text") {
                 $global:statusLabel.Text = "Group memberships updated successfully"
             }
-            
-            # Refresh the group membership display
-            Update-GroupMembershipDisplay -ItemName $itemName -IsComputer $isComputer
-            
-            # Refresh the view
+
+            Update-GroupMembershipDisplay -ItemName $itemName -IsComputer $isComputer -DistinguishedName $(if (-not $isUser -and -not $isComputer) { $objectIdentity } else { $null })
+
             try {
                 $lv = Get-ResultsListViewItemForCurrentSelection
                 if ($lv) { $lv.Selected = $false; $lv.Selected = $true }
@@ -3228,20 +3215,9 @@ $manageGroupsMenuItem.Add_Click({
         }
     }
     catch {
-        if ($global:progressBar -and $global:progressBar.PSObject.Properties.Name -contains "Visible") {
-            $global:progressBar.Visible = $false
-        }
-        if ($global:statusLabel -and $global:statusLabel.PSObject.Properties.Name -contains "Text") {
-            $global:statusLabel.Text = "Error managing groups"
-        }
-        
-        # Still try to refresh the group display in case some changes were made
-        try {
-            Update-GroupMembershipDisplay -ItemName $itemName -IsComputer $isComputer
-        } catch {
-            # Ignore any errors during refresh after an error
-        }
-        
+        if ($global:progressBar -and $global:progressBar.PSObject.Properties.Name -contains "Visible") { $global:progressBar.Visible = $false }
+        if ($global:statusLabel -and $global:statusLabel.PSObject.Properties.Name -contains "Text") { $global:statusLabel.Text = "Error managing groups" }
+        try { Update-GroupMembershipDisplay -ItemName $itemName -IsComputer $isComputer -DistinguishedName $(if (-not $isUser -and -not $isComputer) { $objectIdentity } else { $null }) } catch {}
         [System.Windows.Forms.MessageBox]::Show(
             "Error managing groups: $_",
             "Error",
@@ -3603,17 +3579,93 @@ function Refresh-FavoritesMenu {
     # Add separator
     [void]$menuToUse.DropDownItems.Add("-")
     
-    # Load favorites (JSON)
-    try { $favorites = Read-Favorites } catch { $favorites = @() }
-    $favList = @($favorites)
-    try { Write-Log -Message "Refreshing favorites menu; items=$($favList.Count)" -Level "Info" } catch {}
+    # Load favorites (JSON) with inline fallback to avoid module-scope issues
+    $favList = @()
+    $favReadSource = "none"
+    try {
+        $raw = Read-Favorites
+        if ($null -ne $raw -and $raw -is [Array]) {
+            $favList = @($raw | Where-Object { $null -ne $_ })
+        } elseif ($null -ne $raw) {
+            $favList = @($raw)
+        }
+        if ($favList.Count -gt 0) { $favReadSource = "Read-Favorites" }
+    } catch {
+        try { Write-Log -Message "Refresh-FavoritesMenu: Read-Favorites threw: $_" -Level "Warning" } catch {}
+    }
+
+    # Inline fallback: if module function returned nothing, read the file directly
+    if ($favList.Count -eq 0) {
+        $pathsToTry = @()
+        $primaryPath = $null
+        try { $primaryPath = $global:AppConfig.FavoritesFile } catch {}
+        if (-not [string]::IsNullOrWhiteSpace($primaryPath)) { $pathsToTry += $primaryPath }
+        $localPath = Join-Path -Path $env:ProgramData -ChildPath "ADapp\Data\favorites.json"
+        if ($localPath -ne $primaryPath) { $pathsToTry += $localPath }
+
+        foreach ($tryPath in $pathsToTry) {
+            if ($favList.Count -gt 0) { break }
+            if (-not (Test-Path $tryPath)) {
+                try { Write-Log -Message "Refresh-FavoritesMenu: fallback file not found '$tryPath'" -Level "Warning" } catch {}
+                continue
+            }
+            try {
+                $content = Get-Content -Path $tryPath -Raw -ErrorAction Stop
+                if ([string]::IsNullOrWhiteSpace($content)) {
+                    try { Write-Log -Message "Refresh-FavoritesMenu: fallback file empty '$tryPath'" -Level "Warning" } catch {}
+                    continue
+                }
+                $parsed = $null
+                try {
+                    $parsed = $content | ConvertFrom-Json -ErrorAction Stop
+                } catch {
+                    try { Write-Log -Message "Refresh-FavoritesMenu: JSON parse failed for '$tryPath', attempting repair" -Level "Warning" } catch {}
+                    # Repair corrupted JSON: scan for every '[' after position 0, try parsing from each
+                    $repairSearchFrom = 1
+                    while ($repairSearchFrom -lt $content.Length) {
+                        $bracketIdx = $content.IndexOf('[', $repairSearchFrom)
+                        if ($bracketIdx -lt 0) { break }
+                        $candidate = $content.Substring($bracketIdx)
+                        try {
+                            $parsed = $candidate | ConvertFrom-Json -ErrorAction Stop
+                            try { Write-Log -Message "Refresh-FavoritesMenu: JSON repair succeeded for '$tryPath' (offset $bracketIdx)" -Level "Info" } catch {}
+                            try {
+                                $cleanJson = @($parsed) | ConvertTo-Json -Depth 10 -Compress:$false
+                                $cleanJson | Out-File -FilePath $tryPath -Encoding UTF8 -Force -ErrorAction Stop
+                                try { Write-Log -Message "Refresh-FavoritesMenu: rewrote repaired JSON to '$tryPath'" -Level "Info" } catch {}
+                            } catch {}
+                            break
+                        } catch {}
+                        $repairSearchFrom = $bracketIdx + 1
+                    }
+                    if ($null -eq $parsed) {
+                        try { Write-Log -Message "Refresh-FavoritesMenu: JSON repair failed for '$tryPath' (no valid array found)" -Level "Warning" } catch {}
+                    }
+                }
+                if ($null -ne $parsed) {
+                    if ($parsed -is [Array]) {
+                        $favList = @($parsed | Where-Object { $null -ne $_ })
+                    } else {
+                        $favList = @($parsed)
+                    }
+                }
+                if ($favList.Count -gt 0) {
+                    $favReadSource = "inline-fallback:$tryPath"
+                    try { Write-Log -Message "Refresh-FavoritesMenu: inline fallback loaded $($favList.Count) favorite(s) from '$tryPath'" -Level "Info" } catch {}
+                }
+            } catch {
+                try { Write-Log -Message "Refresh-FavoritesMenu: inline fallback error reading '$tryPath': $_" -Level "Warning" } catch {}
+            }
+        }
+    }
+    try { Write-Log -Message "Refreshing favorites menu; items=$($favList.Count); source='$favReadSource'; path='$($global:AppConfig.FavoritesFile)'" -Level "Info" } catch {}
     
     # Sort favorites by Name (case-insensitive), then SearchType
     if ($favList.Count -gt 0) {
-        $favList = $favList | Sort-Object -Property @(
+        $favList = @($favList | Sort-Object -Property @(
             @{ Expression = { if ($_.Name) { $_.Name.ToString().ToLowerInvariant() } else { "" } }; Ascending = $true },
             @{ Expression = { if ($_.SearchType) { $_.SearchType.ToString().ToLowerInvariant() } else { "" } }; Ascending = $true }
-        )
+        ))
         foreach ($favorite in $favList) {
             $menuItem = New-Object System.Windows.Forms.ToolStripMenuItem
             
@@ -6608,12 +6660,20 @@ Auto-generated by tools/Add-HelpStubs.ps1. Please refine as needed.
 function Update-GroupMembershipDisplay {
     param (
         [string]$ItemName,
-        [bool]$IsComputer
+        [bool]$IsComputer,
+        [string]$DistinguishedName = $null
     )
     
     try {
-        # Get updated groups
-        if ($IsComputer) {
+        # Get updated groups (user/computer vs generic AD object)
+        if ($DistinguishedName) {
+            $updatedGroups = Get-ADObjectSecurityGroups -ObjectIdentity $DistinguishedName
+            if ($updatedGroups) {
+                $currentGroups = $updatedGroups | Where-Object { $_ -ne $null }
+            } else {
+                $currentGroups = @()
+            }
+        } elseif ($IsComputer) {
             $updatedGroups = Get-WorkstationSecurityGroups -ComputerName $ItemName
             if ($updatedGroups) {
                 $currentGroups = $updatedGroups | Where-Object { $_ -ne $null }
@@ -6631,7 +6691,18 @@ function Update-GroupMembershipDisplay {
         
         # Update the Tag property for the matching item (do NOT rely on UI selection)
         try {
-            $targetType = if ($IsComputer) { "Computer" } else { "User" }
+            $targetType = if ($DistinguishedName) {
+                $targetItem = $null
+                foreach ($it in $resultsListView.Items) {
+                    if (-not $it) { continue }
+                    $n = $null
+                    try { $n = [string]$it.SubItems[1].Text } catch {}
+                    if ($n -eq $ItemName) { $targetItem = $it; break }
+                }
+                if ($targetItem) { [string]$targetItem.SubItems[0].Text } else { $null }
+            } else {
+                if ($IsComputer) { "Computer" } else { "User" }
+            }
             $targetItem = $null
             try {
                 foreach ($it in $resultsListView.Items) {

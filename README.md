@@ -31,7 +31,7 @@ ADapp uses layered configuration:
 Example `config/settings.json`:
 ```json
 {
-  "Application": { "Title": "AD Search Tool", "Version": "1.0.16" },
+  "Application": { "Title": "AD Search Tool", "Version": "1.0.19" },
   "Connections": {
     "VNCPath": "C:\\Program Files\\uvnc bvba\\UltraVNC\\vncviewer.exe",
     "VNCViewOnly": true

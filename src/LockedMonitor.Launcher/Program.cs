@@ -9,8 +9,8 @@ using System.Windows.Forms;
 [assembly: AssemblyCompany("")]
 [assembly: AssemblyProduct("ADapp")]
 [assembly: AssemblyCopyright("Copyright © 2024-2026")]
-[assembly: AssemblyVersion("1.0.17.0")]
-[assembly: AssemblyFileVersion("1.0.17.0")]
+[assembly: AssemblyVersion("1.0.19.0")]
+[assembly: AssemblyFileVersion("1.0.19.0")]
 
 internal static class Program
 {

@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
 .SYNOPSIS
     Favorites management module for ADapp.
@@ -99,13 +99,110 @@ function Remove-DefaultAdvancedSearch {
     return $cleaned
 }
 
+function Repair-FavoritesJson {
+    <#
+    .SYNOPSIS
+        Attempts to extract a valid JSON array from corrupted favorites content.
+    .DESCRIPTION
+        When two JSON arrays are concatenated (e.g. by a partial write followed
+        by a full write), the file becomes invalid. This function scans for every
+        '[' character after position 0 and tries to parse from there to the end.
+        The last position that yields valid JSON wins (most complete data).
+    .PARAMETER Content
+        The raw (potentially corrupted) file content.
+    .PARAMETER FilePath
+        Optional path used only for diagnostic messages; not read or written.
+    .OUTPUTS
+        System.Object[] or $null — the parsed array on success, $null on failure.
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Content,
+
+        [string]$FilePath = ""
+    )
+
+    $bestResult = $null
+    $searchFrom = 1
+    while ($searchFrom -lt $Content.Length) {
+        $idx = $Content.IndexOf('[', $searchFrom)
+        if ($idx -lt 0) { break }
+        $candidate = $Content.Substring($idx)
+        try {
+            $parsed = $candidate | ConvertFrom-Json -ErrorAction Stop
+            if ($null -ne $parsed) {
+                $arr = if ($parsed -is [Array]) { @($parsed) } else { @($parsed) }
+                if ($null -eq $bestResult -or $arr.Count -gt $bestResult.Count) {
+                    $bestResult = $arr
+                }
+            }
+        } catch {}
+        $searchFrom = $idx + 1
+    }
+
+    if ($null -ne $bestResult -and $bestResult.Count -gt 0) {
+        return , $bestResult
+    }
+    return $null
+}
+
+function Read-FavoritesFromFile {
+    <#
+    .SYNOPSIS
+        Reads and parses favorites from a single file path with auto-repair.
+    .DESCRIPTION
+        Tries ConvertFrom-Json first; on failure, attempts Repair-FavoritesJson
+        to recover from concatenated/corrupted files. When repair succeeds the
+        file is rewritten with clean JSON to prevent future failures.
+    .PARAMETER Path
+        Full path to the favorites JSON file.
+    .OUTPUTS
+        System.Object[] — the parsed favourites, or an empty array.
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path $Path)) { return , @() }
+
+    try {
+        $content = Get-Content -Path $Path -Raw -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($content)) { return , @() }
+
+        try {
+            $parsed = $content | ConvertFrom-Json -ErrorAction Stop
+            if ($null -ne $parsed) {
+                return $(if ($parsed -is [Array]) { , @($parsed) } else { , @($parsed) })
+            }
+            return , @()
+        }
+        catch {
+            $repaired = Repair-FavoritesJson -Content $content -FilePath $Path
+            if ($null -ne $repaired -and $repaired.Count -gt 0) {
+                try {
+                    $json = $repaired | ConvertTo-Json -Depth 10 -Compress:$false
+                    $json | Out-File -FilePath $Path -Encoding UTF8 -Force -ErrorAction Stop
+                } catch {}
+                return , $repaired
+            }
+            return , @()
+        }
+    }
+    catch { return , @() }
+}
+
 function Read-Favorites {
     <#
     .SYNOPSIS
         Reads saved favorites from the favorites file.
     .DESCRIPTION
         Loads the JSON favorites file referenced by $global:AppConfig.FavoritesFile.
-        Always returns an array, even for a single favourite.
+        Always returns an array, even for a single favourite. When the primary
+        path fails or is corrupt, falls back to the local data path. Corrupted
+        files (e.g. from concatenated writes) are auto-repaired.
     .OUTPUTS
         System.Object[]
         An array of favourite objects. Returns an empty array if no favourites
@@ -116,30 +213,71 @@ function Read-Favorites {
     [CmdletBinding()]
     param ()
 
-    $favoritesPath = $global:AppConfig.FavoritesFile
-    if (Test-Path $favoritesPath) {
-        try {
-            $content   = Get-Content -Path $favoritesPath -Raw -ErrorAction Stop
-            $favorites = $content | ConvertFrom-Json -ErrorAction Stop
+    $favoritesPath = $null
+    try { $favoritesPath = $global:AppConfig.FavoritesFile } catch {}
 
-            if ($null -eq $favorites) {
-                return @()
-            }
-            elseif ($favorites -is [Array]) {
-                $favorites = $favorites
-            }
-            else {
-                $favorites = @($favorites)
-            }
+    if ([string]::IsNullOrWhiteSpace($favoritesPath)) {
+        $favoritesPath = Join-Path -Path $env:ProgramData -ChildPath "ADapp\Data\favorites.json"
+    }
 
-            return $favorites
-        }
-        catch {
-            Write-Warning "Error loading favorites: $_"
-            return @()
+    $result = Read-FavoritesFromFile -Path $favoritesPath
+
+    if ($result.Count -eq 0) {
+        $localFallback = Join-Path -Path $env:ProgramData -ChildPath "ADapp\Data\favorites.json"
+        if ($localFallback -ne $favoritesPath) {
+            $result = Read-FavoritesFromFile -Path $localFallback
         }
     }
-    return @()
+
+    return , $result
+}
+
+function Read-FavoritesFromPath {
+    <#
+    .SYNOPSIS
+        Reads favorites from a specific file path.
+    .DESCRIPTION
+        Low-level helper that loads and parses a single favorites JSON file.
+        Always returns an array (empty on failure).
+    .PARAMETER Path
+        Full path to the favorites JSON file.
+    .OUTPUTS
+        System.Object[]
+    #>
+    [CmdletBinding()]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path $Path)) {
+        try { Write-Log -Message "Read-FavoritesFromPath: file not found '$Path'" -Level "Warning" } catch {}
+        return , @()
+    }
+
+    try {
+        $content = Get-Content -Path $Path -Raw -ErrorAction Stop
+
+        if ([string]::IsNullOrWhiteSpace($content)) {
+            try { Write-Log -Message "Read-FavoritesFromPath: file is empty '$Path'" -Level "Warning" } catch {}
+            return , @()
+        }
+
+        $parsed = $content | ConvertFrom-Json -ErrorAction Stop
+
+        if ($null -eq $parsed) {
+            return , @()
+        }
+
+        $favorites = if ($parsed -is [Array]) { $parsed } else { @($parsed) }
+
+        try { Write-Log -Message "Read-FavoritesFromPath: loaded $($favorites.Count) favorite(s) from '$Path'" -Level "Info" } catch {}
+        return , $favorites
+    }
+    catch {
+        try { Write-Log -Message "Read-FavoritesFromPath: error reading '$Path': $_" -Level "Warning" } catch {}
+        return , @()
+    }
 }
 
 function Save-Favorites {
